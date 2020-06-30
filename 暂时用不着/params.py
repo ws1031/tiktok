@@ -1,0 +1,5 @@
+{"device_type":"MI%206","uuid":"863254012409123","iid":"111280011708","cdid":"7526ed37-f767-480d-8ef0-0bd54f0a9813","openudid":"2405bd8d333e9536", "device_id":"70361550255"},
+{"device_type":"MI%206","uuid":"355757011409121","iid":"1714882541260359","cdid":"7b1d77edd-7acb-46d6-b8eb-8bc9fb42f5f4","openudid":"1405bd8d333e9800", "device_id":"71250592861"},
+{"device_type":"google%20Pixel%202","uuid":"865166010409129","iid":"2647268807942983","cdid":"98d08554-401d-44e6-8280-4aaeeecf9f8a","openudid":"405bd8d333e99001", "device_id":"4300934295592167"},
+{"device_type":"HUAWEI%20MLA-AL10","uuid":"863064010409128","iid":"111286720559","cdid":"51198fde-114c-4cb1-80ee-6905f6c4174c","openudid":"405bd8d333e94280", "device_id":"71315245001"},
+{"device_type":"SM-G955F","uuid":"355757010409122","iid":"2172274732445896","cdid":"baec6b4b-630e-47ed-ae00-3895a21c072d","openudid":"405bd8d333e94150", "device_id":"69943155325"},

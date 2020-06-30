@@ -1,0 +1,79 @@
+douyin1：直播，自动化测试。
+douyin2：直播，尝试Frida不行，下面都是xposed。
+douyin3：短视频，商品橱窗页的视频不能频繁请求，搁置。
+douyin4：短视频，放弃商品橱窗页，转向h5页或单独请求。h5部分数据获取不到，单独请求视频页也不行，不能频繁请求。
+douyin5：直播
+douyin6: 是3和5的合体，但是clips是走的h5端。
+douyin7: 6无法获取销量，在6的基础上增加了get_items.py。然而，抖音小店的销量是实时更新的，因此最终获得的是直播后的销量，其他平台的销量是不更新的，因此最终获得的是直播前的销量。要获得直播销量，必须用最终销量减去初始销量。
+
+待解决的问题：
+1. 商品橱窗的视频页不能频繁请求
+2. parse_clips错误-'NoneType' object is not iterable （media中的id和last_aweme_id中的id都未必是有效的视频id）
+3. parse_clips错误-'NoneType' object has no attribute 'get' （这个没办法，随机的）
+4. shopping assistance页获取的用户id大都是重复的，积累不起来
+5. {'status_code': 4, 'status_msg': '啊哦，服务器打瞌睡了，再试一次吧～', 'log_pb': {'impr_id': '2020050812151501002306015607079773'}}
+6. get_clips{"status_code": 2053, "status_msg": "视频不存在", "log_pb": {"impr_id": "202005081450180100200701680902DF2D"}}，正常status_code是0，且有aweme_detail
+7. get_video{"status_code": 0, "extra": {"now": 1588920754000, "logid": "202005081452330100230230281C032808", "fatal_item_ids": []}, "log_pb": {"impr_id": "202005081452330100230230281C032808"}}, 正常status_code也是0，不过有aweme_detail
+8. clip['share_qrcode_url'] = author.get('share_info').get('share_qrcode_url').get('url_list')[0]这句随机出错，导致部分没有二维码
+9. 获取clips时，一次传入的aweme_id在50以上时将获取不到extra，更多则可能导致获取不到data
+10. 粉丝一次最多请求60，再多就是{"has_more": false, "status_code": 0, "followers": [], "total": 0}，而且每次请求来的都一样的。100次请求竟只获得73个粉丝。
+11. 直播栏目页也不能频繁请求
+12. 下拉页有：直播channel，购物助手channel，粉丝页
+13. 用户粉丝页也不能频繁请求
+14. 粉丝不能一个劲的传入一批offset去获取，要先判断用户有多item_list?少粉丝，粉丝是否可见，然后决定怎样传offset。
+15.如何判断异常直播是否带货？难道在获取到商品列表之前就无法判断直播是否带货？那样的话就只能在check_rooms中加上获取商品列表的请求了。
+16.传一个错误的sec_user_id也能获得item_list
+17.抖音的短视频页面会封设备，换一台新设备，改一下iid和device_id又可以了，稍微跑一下又不行了，以前不这样，现在这样了
+18. 完蛋了，抖音的item_lists没有商品销量，https://api3-normal-c-hl.amemv.com/aweme/v2/shop/promotion/?promotion_id=60654789836300&product_id=606547898363里的是初始销量吧。最终销量在好多个平台啊
+
+一些思路：
+1. 从用户首页的视频页获取视频信息
+2. 找到视频详情页的url，获取单个视频信息
+3. 从h5页‘https://www.douyin.com/web/api/v2/aweme/iteminfo/?item_ids=6819212748510039296’获取视频信息。item_ids可以跟多个，用逗号隔开（不行，部分数据获取不到）
+4. 比对product_id和aweme_id，看是否能判断出是视频还是图片
+5. 用户首页有room_id
+6. 现在的情况是，要么用get_clips慢慢获取，要么从5端获取缺失的信息，要么干错放弃视频
+7. 有短视频带货的未必有直播带货，有直播带货的一定有短视频带货。可以尝试，直播channel页的sec_user_id放入clip_users，user_profile页的room_id放入rooms，两个接口一起跑，互相补充（但有可能，一个人有直播，有短视频带货，但没有直播带货，这样他的room_id存入也是多余的。另外，其实user栏目页下也有room_id，只不过都是0）
+8. redis中，users是短视频用户，rooms是直播用户的room_id， itemlists是直播结束后尚未获取item_info的直播的room_id加上sec_user_id。get_rooms：从直播channel中获取新的room_id放入rooms；check_rooms：检查此前状态未0的room，发现直播开始了，就将状态改为1；get_lives：检查并获取此前状态为1的room，获取直播数据，发现直播结束了，就将状态改回0，并将room_id和sec_user_id拼起来放入item_lists；get_item_lists：获取直播商品数据，获取之后删除其在item_lists中的记录
+9. check_rooms是检查状态为0的，get_lives是获取状态为1的，那么为什么不将两者合并？当前的考虑是，对直播开始的检查允许一定时间的延迟，对直播结束的检查则应尽量及时，也就是说，直播开始40分钟后check_rooms才检查到其开始，这无妨，但直播结束40分钟后get_lives才检查到其结束，这就应该避免。因此，对get_lives的效率要求比对check_rooms更高。而且，如果合并，当检查到一个直播的状态为0，难以知道它是刚刚结束还是根本没有开始。
+10. 之前淘宝是先获取一批，再入库一批，现在抖音是获取一个，马上写入文件。之后抖音大概要改成和淘宝一样。
+11. 倘若之后发现get__lives对每个直播的获取次数太少，可以考虑再check_rooms发现直播开始之后马上写入首条记录。
+12. 通过调整offset和count来获取最大量的粉丝，可是不管怎样调整offset，总有大量重复的。
+13. https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids=...这个可以异步大量走
+14. 飞瓜https://dy.feigua.cn/Member#/Rank/Tag?period=month&tag=%E7%BD%91%E7%BA%A2%E7%BE%8E%E5%A5%B3&keyword=&datecode=202004页面获取详情url，详情url获取aweme_id，有了aweme_id就可以在抖音上通过get_clips批量获取sec_user_id，获取个屁，抖音忽然不能又aweme_id通过get_clips获取sec_user_id了，获取个屁，狗屁。
+15.之后可以改进的地方，找到可以获取大量room_id和sec_user_id的接口，看看在直播页能否直接判断是否带货。
+16.sec_user_id和room_id应该要联系起来（如果两个是一一对应的话），但也保留一个sec_user_id表和一个room_id表。联系个屁，保留个屁，room_id是每次都不同的
+17.现在是通过https://webcast3-normal-c-hl.amemv.com/webcast/ranklist/hour/?这个接口，一批80个去遍历，近4000个sec_user_id的情况下没有被限制，先就这样吧。查看了所有直播页面的接口，之后再出问题的话就找用户页面的接口。get_user_dongtai 20个一批就被限制，get_current_room最先是100个也可以，后来20个也不行了。实在不行的话get_rank_list和get_current_room一起用吧。
+18.然后还有一个获得一个直播之后判断它是否带货的问题。
+19.linux系统常出现没有权限的问题，需要chmod 777赋权。比如数据写不进文件，就可能是没有该目录的权限。
+20.promotion页面每个商品下还有一个visitor- count，是看过的人数吧？也许可以用到
+21.短视频获取不到了；云手机上，get_lives200个不行，100个貌似可以，150没测过，get_rooms貌似只能一个一个跑，get_user_profile20个不行，10个可以，15个没测过；然后还有一个获得一个直播之后判断它是否带货的问题。
+22.根据user_profile判断是否直播带货未必好，可能有的用户只是挂了直播，但其实不直播或者很少直播，而且get_user_profile很容易被拦截。一种替代是，经过get_promotions洗礼的pre_user，用get_rank_list去检查，发现有在直播，就加入user表，并标记状态为1。但另一方面，真正跑起来后，user表是每天从生产库反馈回来的，也就是说都是近一段时间（视具体情况，比如淘宝就是近30天）有直播的，而且用get_user_profile的话，就可以跟获取profile的脚本一起。总之，看get_user_profile跑的周期，如果两天一次，那么get_rank_list更合算，如果一周一次，那么get_user_profile更合算
+23. 暂定用get_rank_list了，这样，共有四张关于用户的表，第一张是following，list，用来获取pre_user和新的following；第二张是pre_user，list，其中的用户id经check_qualification_by_promotion确认有商品橱柜后，如果user中不存在，则放入user；第三张是user，zset，值是sec_user_id，分数是user总共被get_rank_list检查过的次数（这里数据多，检查过程较长，以检查次数作为分值可以确保被检查的机会长期均等），来自pre_user的新数据初始状态标为已有数据的最低分数，该表user经check_qualification_by_rank_list确认发现正在直播后放入live_user，标记状态为1；第四张是live_user，zset，值是sec_user_id，分数为0则表示当前未在直播，分数为1则表示当前正在直播。
+24. 去看看里的销量，抖音的是实时的，淘宝的不会变
+
+关于飞瓜：
+1.https://dy.feigua.cn/Member#/Rank/Tag?period=month&tag=%E7%BD%91%E7%BA%A2%E7%BE%8E%E5%A5%B3&keyword=&datecode=202004，可以获取用户详情页的url
+2.https://dy.feigua.cn/Member#/Blogger/Detail?id=1916&timestamp=1589790650&signature=83fc67e3e1153b9e525fe98790001e84，用户详情页的url，有多个异步加载的url，比如：https://dy.feigua.cn/Blogger/Detail?id=1916&timestamp=1589790650&signature=83fc67e3e1153b9e525fe98790001e84，https://dy.feigua.cn/Blogger/FansAnalysis?uid=24058267831，https://dy.feigua.cn/Blogger/AwemeList?id=1916&page=1&sort=1
+3.有五种排行
+4.个人页有标出商品橱窗
+
+
+现在的做法：
+1.从飞瓜获取feigua_user_id
+2.在飞瓜将feigua_user_id兑换为aweme_id
+3.在抖音将aweme_id兑换为sec_user_id
+4.用check_commercial去检查sec_user_id是否带货，如是，则状态从-1改为0，正式成为sec_user_id
+5.跑各脚本
+
+心情总结：
+1. 数据无法批量获取，心情丧到无法专心工作。
+2. 没钱，没有女朋友，看不见未来。
+3. 好累，想休息。明天大概要搬家。
+4. 好累，想休息，想去香格里拉，想在湖边，草地上，农村小路上散步散很久。
+4. 好累，想休息。
+5. 为什么大家都很快乐很自在？
+6. 好丧啊
+7. 一想到过去我就难受
+8. 想念呢。你在干嘛，陪我说说话？
+
